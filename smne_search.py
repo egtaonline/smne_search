@@ -29,7 +29,7 @@ ADDITIONAL_NUM_SAMPLES = 30
 EMAIL_ADDRESSES = ['qduong@umich.edu','wellman@umich.edu']
 
 GENERIC_SCHEDULER_ID = '4f708e4a4a980603a7000004'
-GAME_ID = '4f71e1a64a98063f37000002'
+GAME_ID = '4fa932464a9806623c000001'
 SIMULATOR_ID = '4f42b6d94a98065c36000001'
 
 def schedule_deviations(mixed_profile,num_samples,subgame,game,e_connection,deviations):
@@ -73,15 +73,16 @@ equi_file = sys.argv[3]
 out_file = sys.argv[4]
 e_connection = egta_comm.EgtaConnection(GAME_ID,GENERIC_SCHEDULER_ID,SIMULATOR_ID)
 
-if mode == '1':
+if mode == '1' or mode == '1a':
     # get new game data
     print 'EGTA:Mode 1'
-    print 'EGTA:Download game file'
-    e_connection.get_game(game_data_file)
+    if mode == '1':
+        print 'EGTA:Download game file'
+        e_connection.get_game(game_data_file)
     
-    # run game analysis
-    print 'EGTA:Run game analysis'
-    os.system("python2.7 " + _GA + "/AnalysisScript.py -r " + str(_R) + " -d " + str(_D) + "  "  + game_data_file + " > " + equi_file)
+        # run game analysis
+        print 'EGTA:Run game analysis'
+        os.system("python2.7 " + _GA + "/AnalysisScript.py -r " + str(_R) + " -d " + str(_D) + "  "  + game_data_file + " > " + equi_file)
 
     continued = True
     game_subgameprofiles = equilibrium_evaluator.read_equi_profiles(equi_file)
@@ -92,66 +93,64 @@ if mode == '1':
     num_sg = 0
     confirmed_profiles = []
     scheduled = []
+    unconfirmed_mixed_NE = 'Unconfirmed SMNE: '
+
     for subgameprofile in game_subgameprofiles[1]:
         num_sg += 1
         for mixed_profile in subgameprofile[1:]:
             num_smne += 1
             if not mixed_profile.confirmed:
+                print('EGTA: unconfirmed ')
+                print(mixed_profile.profile)
+                print(mixed_profile.game.strategies)
+                print(mixed_profile.best_responses)
+                print(mixed_profile.regret)
+                
+                str_n_prof = ''
+                role_count = 0
+                for role, stgy in mixed_profile.game.strategies.items():
+                    str_n_prof = str_n_prof + str(role) + ":" + str(stgy) +", "+ str(mixed_profile.profile[role_count]) + '\n'
+                    role_count +=1
+                str_n_prof = str_n_prof[:-1]
+
+                unconfirmed_mixed_NE = unconfirmed_mixed_NE + '\n\n' + 'Strategies and Profiles: \n'+ str_n_prof+ '\n' + 'Best Responses: \n'+str(mixed_profile.best_responses) + '\n' + 'Regret: ' +str(mixed_profile.regret)
+
                 continued = False
                 num_unconfirmed += 1
                 scheduled = schedule_deviations(mixed_profile,NUM_SAMPLES,subgameprofile[0],game_subgameprofiles[0],e_connection,scheduled)
+                
             else:
                 confirmed_profiles.append(mixed_profile)
     num_new = e_connection.count_profiles()
     print('EGTA: new samples' + str(num_new))
     num_scheduled = num_new[1]
     print('EGTA:  number of new profiles ' + str(num_scheduled))
-    
+
     if continued:
+        
         if len(confirmed_profiles) > 0:
+            body = 'regret values of all confirmed profile: '
             print 'EGTA:improve confidence'
-            num_scheduled = 0
 
             for profile in confirmed_profiles:
                 scheduled = schedule_support_profiles(profile,NUM_SAMPLES + ADDITIONAL_NUM_SAMPLES,e_connection)
-                num_scheduled += len(scheduled)
+                body = body + str(profile.regret) + '\n'
 
             confident = e_connection.check_sample_count(NUM_SAMPLES + ADDITIONAL_NUM_SAMPLES)
             print 'EGTA:check sample counts ' 
             print('EGTA:' + str(confident))
             if confident:
-
-                out = open(out_file,'w')
-                sys.stdout = out
-                game = game_subgameprofiles[0]
-                write_game(game)
-                index = 0
-                for subgameprofile in game_subgameprofiles[1]:
-                    # first make sure that we have the SMNEs confirmed
-                    contained = False
-                    mixed_equilibria = []
-                    for p in confirmed_profiles:
-                        if p.game == subgameprofile[0]:
-                            contained = True
-                            mixed_equilibria.append(p)
-                    if contained:
-                        write_subgame_info(index,subgameprofile[0],mixed_equilibria)
-                        j = 0
-                        for mixed_p in mixed_equilibria:
-                            BR = game.bestResponses(mixed_p.profile)
-                            write_subgame_equilibria(mixed_p.profile,j,game,BR)
-                            j += 1
-                        index+=1
-                
-                out.flush()
-                out.close()
-                sys.stdout = old_stdout
+                os.system('cp ' + equi_file + ' ' + out_file)
                 # return the confirmed equilibria
-                egta_comm.send_email('mode 3: finished egta', EMAIL_ADDRESSES)                
+                egta_comm.send_email('mode 3: finished egta', EMAIL_ADDRESSES,body)                
                 
             else:
+                num_new = e_connection.count_profiles()
+                print('EGTA: new samples' + str(num_new))
+                num_scheduled = num_new[1]
+                print('EGTA:  number of new profiles ' + str(num_scheduled))
                 # move to mode 2
-                egta_comm.send_email('mode 2a: collecting additional ' + str(num_scheduled) + ' samples  to improve confidence in existing ' + str(len(confirmed_profiles)) + ' SMNEs', EMAIL_ADDRESSES)     
+                egta_comm.send_email('mode 2a: collecting additional ' + str(num_scheduled) + ' profiles  to improve confidence in existing ' + str(len(confirmed_profiles)) + ' SMNEs', EMAIL_ADDRESSES,body)     
                 os.system('nohup nice python2.7 smne_search.py 2a ' + sys.argv[2] + ' ' + sys.argv[3]  + ' ' + sys.argv[4] + '  0  &')
         else:
             # pick out the one with highest regret
@@ -170,30 +169,44 @@ if mode == '1':
                     j+= 1
                 i+=1
             schedule_subgame(game_subgameprofiles[1][s_index][0], game_subgameprofiles[1][s_index][p_index + 1].best_responses,NUM_SAMPLES)
+            
+            highest_regret_profile = game_subgameprofiles[1][s_index][p_index + 1]
+            highest_regret = highest_regret_profile.regret
+            best_response = highest_regret_profile.best_responses
+            
+            name = ''
+            for role,sp in best_response.items():
+                name = name + role + ': ' + sp + '\n'
 
-            egta_comm.send_email('mode 2b: extending subgame of the highest regret SMNE', EMAIL_ADDRESSES)                               
+            name = name[:-1]
+     
+            body = 'highest regret value: '+ str(highest_regret) + '\n\nhighest regret SMNE profile\n' + name
+
+            egta_comm.send_email('mode 2b: extending subgame of the highest regret SMNE', EMAIL_ADDRESSES, body)                               
             os.system('nohup nice python2.7 smne_search.py 2 ' + sys.argv[2] + ' ' + sys.argv[3]  + ' ' + sys.argv[4] + '  0  &')
     else:
         # move to state 2
-        egta_comm.send_email('mode 2: collecting ' + str(num_scheduled) + '  missing profiles (' + str(num_unconfirmed) + ' unconfirmed SMNEs)', EMAIL_ADDRESSES,'number of subgames: ' + str(num_sg) + '\nnumber of SMNEs: ' + str(num_smne) + '\nnumber of unconfirmed SMNEs: ' + str(num_unconfirmed) + '\nnumber of scheduled profiles: ' + str(num_scheduled))                               
+        egta_comm.send_email('mode 2: collecting ' + str(num_scheduled) + '  missing profiles (' + str(num_unconfirmed) + ' unconfirmed SMNEs)', EMAIL_ADDRESSES,'number of subgames: ' + str(num_sg) + '\nnumber of SMNEs: ' + str(num_smne) + '\nnumber of unconfirmed SMNEs: ' + str(num_unconfirmed) + '\nnumber of scheduled profiles: ' + str(num_scheduled)+'\n' + unconfirmed_mixed_NE)                               
         os.system('nohup nice python2.7 smne_search.py 2 ' + sys.argv[2] + ' ' + sys.argv[3]  + ' ' + sys.argv[4] + '  0  &')
 
 elif mode == '2' or mode == '2a':
     print 'EGTA:Mode 2'
-    # waiting to get all the profiles
+    #egta_comm.send_email('test',['qduong@umich.edu'])
     hours = int(sys.argv[5])
     hours += 1
     # test if done 
     requested = NUM_SAMPLES
     if mode == '2a':
         requested += ADDITIONAL_NUM_SAMPLES
+        
+    print('EGTA: check sample count ' + str(e_connection.check_sample_count(requested)))
 
     if e_connection.check_sample_count(requested):
         # move back to 1, outside of the loop
         egta_comm.send_email('finished collecting data (one inner loop), back to the beginning ', EMAIL_ADDRESSES)
         os.system('nohup nice python2.7 smne_search.py 1 ' + sys.argv[2] + ' ' + sys.argv[3]  + ' ' + sys.argv[4] + ' &')
     else:
-        if hours > 24:
+        if hours > 24 * 2:
             egta_comm.send_email('time_exceeded in stage 2/2a/2b', EMAIL_ADDRESSES)
         else:
             time.sleep(1800)

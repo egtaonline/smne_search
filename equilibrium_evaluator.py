@@ -1,4 +1,4 @@
-#~/local/bin/python2.7
+ #~/local/bin/python2.7
 
 import os, sys, policy
 import yaml
@@ -63,9 +63,11 @@ def remove_policy_configs(origin_path,removed_policy_names):
     s.close()
 
 def write_deviation_list(deviations,out_file,out_file_template,origin_path):
+    result = ''
     print('COMPL:')
     print(out_file + '....')
-    out = open(out_file,'w')
+    # Note: we only add profiles, 
+    out = open(out_file,'a')
     count = 0
     while count < 20:
         try:
@@ -80,19 +82,15 @@ def write_deviation_list(deviations,out_file,out_file_template,origin_path):
         filename = out_file_template.replace('*',deviation.get_name())
         out1 = open(filename,'w')
         out1.write(deviation.write() + '\n')
+        result += deviation.get_name() + ' (compliance score: ' + str(deviation.compliance_score()) + ')\n'
+        
         out1.close()
 
         s.put(filename)
         s.execute('mv ' + filename.split('/')[-1] + ' ' + origin_path)
     out.close()
     s.close()
-
-def update_deviation_list(ordered_deviations,out_file):
-    # write them in the particular order
-    out = open(out_file,'w')
-    for deviation in ordered_deviations:
-        out.write(deviation + '\n')
-    out.close()
+    return result
 
 def lookup_policy_name(dir,policy_name):
     output = commands.getoutput('ls ' + dir + '/ibr/policy.*.cfg').split()
@@ -267,20 +265,61 @@ def read_subgame(file,roles,counts, threshold):
 
 def add_most_current_deviating_policies(list_file, experiment_dir, mem = 5):
     if not os.path.exists(list_file):
-        return [[],[]]
+        return [[],[],[],[]]
     in1 = open(list_file,'r')
     Cnew = []
     Cexamined = []
+    fnew = []
+    fexamined = []
     for line in in1:
         line = line.replace('\n','')
-        addr = lookup_policy_name(experiment_dir,line)
+        policy_name = line.split()[0]
+        if (len(line.split()) > 1):
+            f_value = float(line.split()[1])
+        else:
+            f_value = 0
+
+        addr = lookup_policy_name(experiment_dir,policy_name)
         p = Policy(addr)
-        Cnew.append(p)
+
         if len(Cnew) >= mem:
             Cexamined.append(p)
+            fexamined.append(f_value)
+        else:
+            Cnew.append(p)
+            fnew.append(f_value)
+
     in1.close()
-    return [Cnew,Cexamined]
+    return [Cnew,Cexamined,fnew,fexamined]
     
+def read_deviating_policies_from_list(list_file, experiment_dir):
+    if not os.path.exists(list_file):
+        return [[],[]]
+    
+    in1 = open(list_file,'r')
+    Cnew = []
+    fnew = []
+    for line in in1:
+        line = line.replace('\n','')
+        policy_name = line.split()[0]
+        if len(line.split()) > 1:
+            f_value = float(line.split()[1])
+        else:
+            f_value = 0
+                
+        addr = lookup_policy_name(experiment_dir,policy_name)
+        p = Policy(addr)
+        Cnew.append(p)
+        fnew.append(f_value)
+    in1.close()
+    return [Cnew,fnew]
+
+def write_deviating_policies_to_list(list_file,Cnew,fnew):
+    out = open(list_file,'w')
+    for i in range(len(Cnew)):
+        out.write(str(Cnew[i]) + '\t' + str(fnew[i]) + '\n')
+    out.close()
+
 
 def read_equi_profiles(strat_file,threshold=-1):
 
@@ -499,7 +538,6 @@ def generate_deviating_policies(C,original_equi_file,unconfirmed_file,minmax,lim
 
     all_game_profiles = read_equi_profiles(original_equi_file)
     unconfirmed = get_unconfirmed_equi_profile_indices(all_game_profiles,unconfirmed_file,minmax)
-
     subgames = all_game_profiles[1]
     # first pick out the most/least compliant
     min_compliance = 1e10
@@ -520,17 +558,16 @@ def generate_deviating_policies(C,original_equi_file,unconfirmed_file,minmax,lim
                 if score > max_compliance:
                     max_compliance = score
                     max_profile = profile
-                    max_index_str = str(i) + '\t' + str(j)
-            
+                    max_index_str = str(i) + '\t' + str(j)            
             j+=1
         i+=1
     
     index_str = ''
     if minmax == 0:
-        p = min_profile
+        target_profile = min_profile
         index_str = min_index_str
     else:
-        p = max_profile
+        target_profile = max_profile
         index_str = max_index_str
     
     # pick out the role that has the highest regret
@@ -540,14 +577,15 @@ def generate_deviating_policies(C,original_equi_file,unconfirmed_file,minmax,lim
     print('COMPL: target score ' + str(min_compliance) + ' ' + str(max_compliance))
 
     for role in all_game_profiles[0].roles:
-        score = compliance_score(profile,C,role)
+        score = compliance_score(target_profile,C,role)
         print('COMPL: target role score ' + str(score))
         if (score < COMPLIANCE_THRESHOLD and minmax == 0) or (score > COMPLIANCE_THRESHOLD and minmax == 1):
 
-            if p.gains[role] > max_regret:
-                max_regret = p.gains[role]
+            if target_profile.gains[role] > max_regret:
+                max_regret = target_profile.gains[role]
                 max_role = role
 
+    
     if max_role == '':
         print 'NONE OF THE PROFILES SATISFIES THE COMPLIANCE REQUIREMENT'
         return []
@@ -564,56 +602,53 @@ def generate_deviating_policies(C,original_equi_file,unconfirmed_file,minmax,lim
     # find the deviation policies        
 
     results = []
-    results.append(p)
+    results.append(target_profile)
     results.append(index_str)
     print(Cnew)
-    print(p.game.strategies[max_role])
 
     target_policies = Cnew
-    if not limited:
-        for policy in Cnew:
-            print(policy.name)
-            score = policy.compliance_score()
-            if minmax == 0:
-                # find the least compliant (highest score) for the most compliant policy (lowest score)
-                if score > target_score:
-                    target_score = score
-                    target_policy = policy
-            else:
-                if score < target_score:
-                    target_score = score
-                    target_policy = policy
-        target_policies = [target_policy]
-    
+
     #print(target_policy)
     #print(target_score)
-    
     results.append(max_role)
-    print('COMPL:')
-    print(target_policies)
-    print(limited)
 
-    for target_policy in target_policies:
-        dev = 0.01
-        distance = 1
-        while True:
+    print('COMPL: target profile')
+    print(target_profile.profile)
+    print(target_profile.regret)
+    print(target_profile.game.strategies)
+    results.append([])
+
+    dev = 0.05
+    distance = 1
+    while True:
+        for target_policy in target_policies:
             candidates = target_policy.generate_deviations(dev * distance)
-            
             # filter out compliant or non compliant
             candidates = filter_list(candidates,C[max_role])
             candidates = filter_list(candidates,Cnew)
             candidates = filter_list(candidates,Cexamined)
 
+            deleted_candidates = []
             for candidate in candidates:
-                if (candidate.compliance_score() < COMPLIANCE_THRESHOLD and minmax == 0):
-                    candidates.remove(candidate)
-                if (candidate.compliance_score() >= COMPLIANCE_THRESHOLD and minmax == 1):
-                    candidates.remove(candidate)
-            if len(candidates) > 0:
-                break
-            distance += 1    
+                if ((candidate.compliance_score() < COMPLIANCE_THRESHOLD or candidate.compliance_score() >= 1) and minmax == 0):
+                    deleted_candidates.append(candidate)
+                if ((candidate.compliance_score() >= COMPLIANCE_THRESHOLD or candidate.compliance_score() <= 0) and minmax == 1):
+                    deleted_candidates.append(candidate)
+            for deleted in deleted_candidates:
+                candidates.remove(deleted)
+        if len(candidates) > 0:
+            results[-1] += candidates
+            break
+        elif dev > 20:
+            break
+        else:
+            dev += 1
 
-        results.append(candidates)
+
+    print('test')
+    for x in results[3]:
+        print(x.compliance_score())
+
 
     return results
 
@@ -640,7 +675,7 @@ def generate_deviating_profiles(p,index_str,role,new_strategies,original_equi_fi
         deviations = deviations + list(tmp)
 
     #write down the index of the original profile
-    #TODO: take it True
+
     if True:
         write_deviation_profiles(deviations,out_file,spec_yaml_file)
         out = open(out_file.replace('*','index'),'w')
@@ -655,7 +690,6 @@ def generate_deviating_profiles(p,index_str,role,new_strategies,original_equi_fi
         for deviation in deviations:
             print('COMPL:')
             print(deviation)
-        #TODO: remove comment after testing
             e_connection.add_profile_to_scheduler(deviation,num_samples)
                 
 
@@ -681,34 +715,33 @@ def get_profile(sim_list):
     return profile
 
 def test_deviations(deviation_profile_file_template,equi_file,payoff_file,postfix,esp,e_connection,deviation_policy_file):
-    code_dict = {'ISP_INTRODUCERS':'isp', 'CLIENTS':'c', 'SERVERS':'s', 'ROOT_INTRODUCERS':'r'}
 
     target_index_data = read_subgame_profile_indices(deviation_profile_file_template.replace('*','index'))
     target_index = target_index_data[0][0]
     all_game_profiles = read_equi_profiles(equi_file)
     print('COMPL:')
     print(target_index)
+
+
     mixed_profile = get_mixed_profile_by_index(all_game_profiles,target_index[0],target_index[1])
+    print(mixed_profile.game.strategies)
 
     # the new file is in data_file + '.new'
     # first refresh the game
-    print('COMPL: REFRESH GAME')
-    e_connection.refresh_game()
-    
-    # add support for the mixed_profile
-    for role in mixed_profile.game.roles:
-        for strategy in mixed_profile.game.strategies[role]:
-            r_index = mixed_profile.game.roles.index(role)
-            s_index = mixed_profile.game.strategies[role].index(strategy)
-            print('COMPL: add strategy to game (' +role + ':' + strategy + ')')
-            e_connection.add_strategy_to_game(role,strategy)
-
     # new strategies
     target_strategies = []
+    other_strategies = []
+    other_fvalue = []
     in1 = open(deviation_policy_file,'r')
     for line in in1:
-        line = line.replace('\n','').replace(' ','')
-        target_strategies.append(line)
+        line = line.replace('\n','').replace(' ','').split()
+        # only add the current round of new strategies
+        if (len(line) <= 1):
+            target_strategies.append(line[0])
+        else:
+            other_strategies.append(line[0])
+            other_fvalue.append(float(line[1]))
+    
     in1.close()
     target_role = ''
     for role in mixed_profile.game.roles:
@@ -719,16 +752,53 @@ def test_deviations(deviation_profile_file_template,equi_file,payoff_file,postfi
     # can't add all the strategies in at the same time since that will overload the game analysis
     results = []
     results_alt = []
-    for strategy in target_strategies:
 
-        e_connection.add_strategy_to_game(target_role,strategy)
+    print(target_strategies)
 
-    # get game
-    e_connection.get_game(payoff_file +'.' +postfix)
+    if True:
+        print('COMPL: REFRESH GAME')
+        e_connection.refresh_game()
+    
+        # add support for the mixed_profile
+        for role in mixed_profile.game.roles:
+            for strategy in mixed_profile.game.strategies[role]:
+                r_index = mixed_profile.game.roles.index(role)
+                s_index = mixed_profile.game.strategies[role].index(strategy)
+                print('COMPL: add strategy to game (' +role + ':' + strategy + ')')
+                e_connection.add_strategy_to_game(role,strategy)
+
+        for strategy in target_strategies:
+            e_connection.add_strategy_to_game(target_role,strategy)
+
+        # get game
+        e_connection.get_game(payoff_file +'.' +postfix)
+
+    # generate game 
+    new_game = GameIO.readGame(payoff_file + '.' + postfix)
+    print('COMPL:')
+    print(new_game.roles)
+    print(new_game.strategies)
+    print(target_role)
     
     regret_dict = {}
+    print('COMPL : compute regret')
+    print(mixed_profile.profile)
+    new_profile = new_game.zeros()
+    
+    for role in new_game.roles:
+        for strategy in new_game.strategies[role]:
+            if strategy in mixed_profile.game.strategies[role]:
+                r_index = new_game.roles.index(role)
+                s_index_new = new_game.strategies[role].index(strategy)
+                s_index_old = mixed_profile.game.strategies[role].index(strategy)
+
+                new_profile[r_index, s_index_new] = mixed_profile.profile[r_index, s_index_old]
+    print(new_profile)
+    
     for strategy in target_strategies:
-        regret = mixed_profile.game.regret(mixed_profile.profile,target_role,deviation=strategy)
+        print(strategy)
+        regret = new_game.regret(new_profile,target_role,deviation=strategy)
+        print(regret)
         regret_dict[strategy] = regret
     
     # sort these regrets so that the largest ones are last
@@ -739,31 +809,70 @@ def test_deviations(deviation_profile_file_template,equi_file,payoff_file,postfi
                 x = target_strategies[i]
                 target_strategies[i] = target_strategies[j]
                 target_strategies[j] = x
-    
-    for strategy in reversed(target_strategies):
+
+    # update these regrets in the deviating profiles
+    Cnew = []
+    fnew = []
+    for strategy in target_strategies:
         regret = regret_dict[strategy]
+        Cnew.append(strategy)
+        fnew.append(regret)
 
         print('COMPL: ' + str(strategy) + ' : ' + str(regret))
         if regret > esp:
-            results.append(strategy)
-            results.append(target_role)
-            break
+            if len(results) == 0:
+                results.append(1)
+                results.append(strategy)
+                results.append(target_role)
+                results.append(regret)
         else:
             if len(results)==0:                
+                results.append(0)
                 results.append(target_index)
                 results.append(target_role)                
                 
             results.append(strategy)
+
+    current_max = max(fnew)
+    print(target_strategies)
+
+    print('COMPL: new strategies and fvalues\n')
+    print(Cnew)
+    print(fnew)
+
+    print('COMPL: other strategies and fvalues \n')
+    print(other_strategies)
+    print(other_fvalue)
+
+    # add other strategies, update strategy list file now
+    Cnew = Cnew + other_strategies
+    fnew = fnew + other_fvalue
+    all_max = max(fnew)
+
+    print(fnew)
+    print('COMPL: max f ' + str(current_max))
+    print('COMPL: all max f ' + str(all_max))
+    
+    if (current_max < all_max):
+        # hit local maximum 
+        results[0] = -1
+        
+    print('COMPL: result ' + str(results[0]))
+
+    write_deviating_policies_to_list(deviation_policy_file, Cnew, fnew)
+
     return results
 
 
-def update_equi(unconfirmed_equi_file,profile_index_results,minmax):
-
-    profile_index = profile_index_results[0]        
+def update_equi(unconfirmed_equi_file,profile_index,minmax,value):
+    
     unconfirmed_equi_indices_data = read_subgame_profile_indices(unconfirmed_equi_file)
-    print('COMPL:')
+    print('COMPL: unconfirmed equi indices')
     print(unconfirmed_equi_indices_data)        
+    print('COMPL: profile index')
+    print(profile_index)
     i = unconfirmed_equi_indices_data[0].index(profile_index)        
-    unconfirmed_equi_indices_data[1][i][minmax] = 1
+    # 1 is refuted, 2 is confirmed
+    unconfirmed_equi_indices_data[1][i][minmax] = value
     write_subgame_profile_indices(unconfirmed_equi_file,unconfirmed_equi_indices_data)    
     

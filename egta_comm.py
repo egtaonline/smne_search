@@ -18,7 +18,9 @@ class EgtaConnection:
         self.generic_scheduler_id = generic_scheduler_id
         
         self.auth_token = 'auth_token=g2LHz1mEtbysFngwLMCz'
+
         self.a_tok = 'g2LHz1mEtbysFngwLMCz'
+        #self.a_tok = '53tqUJ699zxsa9ckWwMz'
         self.url = 'http://d-108-249.eecs.umich.edu'
         self.simulator_id = simulator_id        
 
@@ -44,7 +46,7 @@ class EgtaConnection:
                 print(e)
                 count += 1
             
-
+    
     def post_url(self,target,data):
         if DEBUG:
             return 
@@ -79,25 +81,6 @@ class EgtaConnection:
                 self.remove_strategy_from_game(r,s)
 
         os.system('rm ' + tmp_file)
-
-
-    def refresh_simulator(self):
-        target = self.url + '/api/v2/generic_schedulers/' + self.generic_scheduler_id + '.json?' + self.auth_token
-        tmp_file = 'check_status.json'
-        self.open_url(target,tmp_file)
-        in1 = open(tmp_file)
-        tmp_data = in1.read()
-        in1.close()
-        data = json.loads(tmp_data)
-        samples = data['sample_hash']
-        for profile_id, num_samples in samples.items():
-            if num_samples['requested_samples'] <= num_samples['sample_count']:
-                # remove
-                self.remove_profile_from_simulator(profile_id)
-
-    def remove_profile_from_simulator(self,profile_id):
-        print('TODO')
-
 
     def add_strategy_to_game(self,role,strategy):
         target = self.url + '/api/v2/games/' + self.game_id + '/add_strategy.json' 
@@ -134,9 +117,16 @@ class EgtaConnection:
             name = name + '; '
 
         name = name[:-2]        
-        #print(name)
+        print(name)
         data['profile_name'] = name
+        print(data)
         self.post_url(target,data)
+
+    def remove_profile_from_scheduler(self, profile_id):
+        target = self.url + '/api/v2/generic_schedulers/' + self.generic_scheduler_id + '/remove_profile.json'
+        data = {'auth_token' : self.a_tok}
+        data['profile_id'] = profile_id;
+	self.post_url(target,data)
 
     def read_profile_from_yaml(self,file,game):
         d = {}
@@ -164,7 +154,7 @@ class EgtaConnection:
         samples = data['sample_hash']
         new_samples = 0
         for profile_id, num_samples in samples.items():
-            if num_samples['sample_count'] == 0:
+            if num_samples['sample_count'] < num_samples['requested_samples']:
                 new_samples += 1
         return [len(samples),new_samples]
 
@@ -185,6 +175,19 @@ class EgtaConnection:
         return True
         
 
+    def refresh_scheduler(self):
+        target = self.url + '/api/v2/generic_schedulers/' + self.generic_scheduler_id + '.json?' + self.auth_token
+        tmp_file = 'check_status.json'
+        self.open_url(target,tmp_file)
+        in1 = open(tmp_file)
+        tmp_data = in1.read()
+        in1.close()
+        data = json.loads(tmp_data)
+        samples = data['sample_hash']
+        for profile_id, num_samples in samples.items():
+            self.remove_profile_from_scheduler(profile_id)
+    
+
 def send_email(content,email_address_list,body=''):
     for email_address in email_address_list:
         if body == '':
@@ -197,7 +200,7 @@ def send_email(content,email_address_list,body=''):
         s = smtplib.SMTP('localhost')
         s.sendmail(email_address,[email_address], msg.as_string())
         s.quit()
-    
+        
 if __name__ == "__main__":
     add_strategy('CLIENTS','test')
     
