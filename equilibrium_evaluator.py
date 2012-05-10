@@ -27,11 +27,9 @@ SSH_URL = "nyx-login.engin.umich.edu"
 RM_SCRIPT = 'rm_policy' 
 COMPLIANCE_THRESHOLD = 0.25
 
-def _d():
-    return 0.001
+_d = 0.001
 
-def _r():
-    return 100
+_r = 100
 
 def contains(arr,b):
     for a in arr:
@@ -129,7 +127,7 @@ class MixedProfile:
 
                 # allow for profiles of different subgames to be matched
                 if not strategy in other.game.strategies[role]: 
-                    if self.profile[r_index,s_index] > _d():
+                    if self.profile[r_index,s_index] > _d:
                         return False
                     else: 
                         continue
@@ -137,7 +135,7 @@ class MixedProfile:
                 r_index_1 = other.game.roles.index(role)
                 s_index_1 = other.game.strategies[role].index(strategy)
                 
-                if abs(self.profile[r_index,s_index] - other.profile[r_index_1,s_index_1]) > _d():
+                if abs(self.profile[r_index,s_index] - other.profile[r_index_1,s_index_1]) > _d:
                     return False
             
         return True
@@ -151,7 +149,7 @@ class MixedProfile:
                 s_index = self.game.strategies[role].index(strategy)
 
                 if not strategy in other.game.strategies[role]: 
-                    if self.profile[r_index,s_index] > _d():
+                    if self.profile[r_index,s_index] > _d:
                         return False
                     else: 
                         continue                
@@ -159,10 +157,10 @@ class MixedProfile:
                 r_index_1 = other.game.roles.index(role)
                 s_index_1 = other.game.strategies[role].index(strategy)
 
-                if (self.profile[r_index,s_index] > _d() and other.profile[r_index_1,s_index_1] < _d()):
+                if (self.profile[r_index,s_index] > _d and other.profile[r_index_1,s_index_1] < _d):
                     return False
 
-                if (self.profile[r_index,s_index] < _d() and other.profile[r_index_1,s_index_1] > _d()):
+                if (self.profile[r_index,s_index] < _d and other.profile[r_index_1,s_index_1] > _d):
                     return False
         return True
     
@@ -338,7 +336,7 @@ def read_equi_profiles(strat_file,threshold=-1):
         if 'command: ' in line:
             items = line.split()
             if threshold < 0:
-                threshold = _r()
+                threshold = _r
                 #threshold = float(items[items.index('-r') + 1])
 
         if 'subgame' in line and ':' in line:

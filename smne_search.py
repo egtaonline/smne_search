@@ -11,8 +11,8 @@ import equilibrium_evaluator
 # constants for game analysis script
 # adjust accordingly
 _GA = equilibrium_evaluator._GA
-_R = equilibrium_evaluator._r()
-_D = equilibrium_evaluator._d()
+_R = equilibrium_evaluator._r
+_D = equilibrium_evaluator._d
 
 # change this to where the game analysis script is stored
 sys.path.append(_GA)

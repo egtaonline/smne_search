@@ -1,0 +1,20 @@
+1. Set equilibrium_evaluator._GA to the location of the game analysis script
+
+2. Set equilibrium_evaluator._r to regret threshold for approximate NE (see AnalysisScript.py for more information)
+
+3. Set equilibrium_evaluator._d to difference threshold for mixed strategy profiles (see AnalysisScript.py for more information)
+
+4. In smne_search.py: 
+   a. Modify 'GENERIC_SCHEDULER_ID', 'GAME_ID', and 'SIMULATOR_ID' accordingly. 
+   b. Set EMAIL_ADDRESSES to indicate the list of people that will receive update emails
+   c. Set NUM_SAMPLES to the number of samples needed for each profile 
+   d. Set ADDITIONAL_NUM_SAMPLES to the number of samples needed to improve confidence for each profile
+
+5. Quick run:
+
+python2.7 smne_search.py 1 <game_data_file> <equi_file> <out_file>
+
+<game_data_file>: where the game data file (json) will be downloaded by the script
+<equi_file>: where the result of game analysis will be stored 
+<out_file>: final game analysis file 
+
